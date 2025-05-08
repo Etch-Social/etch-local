@@ -1,0 +1,27 @@
+# Node modules
+node_modules/
+
+# Hardhat files
+artifacts/
+cache/
+coverage/
+
+# Typechain artifacts (if used)
+typechain/
+typechain-types/
+
+# Remappings (if using Foundry or other frameworks)
+remappings.txt
+
+# Environment files
+.env
+.env.*
+
+# OS-specific files
+.DS_Store
+
+# Log files
+npm-debug.log
+yarn-error.log
+lerna-debug.log
+pnpm-debug.log

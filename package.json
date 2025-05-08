@@ -1,0 +1,47 @@
+{
+  "name": "social-media-nfts",
+  "version": "1.0.0",
+  "description": "A Hardhat project testing a SocialMediaNFT contract with Next.js frontend",
+  "scripts": {
+    "compile": "npx hardhat compile",
+    "test": "npx hardhat test",
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^2.0.0",
+    "@tailwindcss/postcss": "^4.1.5",
+    "autoprefixer": "^10.4.21",
+    "chai": "^4.3.7",
+    "ethers": "^5.7.0",
+    "hardhat": "^2.22.18",
+    "postcss": "^8.5.3",
+    "tailwindcss": "^4.1.5"
+  },
+  "dependencies": {
+    "@ethersproject/providers": "^5.8.0",
+    "@nomicfoundation/hardhat-chai-matchers": "^1.0.0",
+    "@nomicfoundation/hardhat-network-helpers": "^1.0.0",
+    "@nomiclabs/hardhat-ethers": "^2.0.0",
+    "@nomiclabs/hardhat-etherscan": "^3.0.0",
+    "@openzeppelin/contracts": "^5.2.0",
+    "@typechain/ethers-v5": "^10.1.0",
+    "@typechain/hardhat": "^6.1.2",
+    "@types/chai": "^4.2.0",
+    "@types/mocha": ">=9.1.0",
+    "arweave": "^1.15.7",
+    "dotenv": "^16.4.7",
+    "hardhat-deploy": "^0.14.0",
+    "hardhat-gas-reporter": "^1.0.8",
+    "next": "^15.3.1",
+    "nostr-tools": "^2.10.4",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "solidity-coverage": "^0.8.1",
+    "ts-node": ">=8.0.0",
+    "typechain": "^8.1.0",
+    "typescript": ">=4.5.0"
+  }
+}
