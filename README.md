@@ -1,4 +1,4 @@
-# Etch Social - Local NFT Social Media
+# Publish and view blockchain social media posts
 
 This project is a locally run social media application where posts are represented as NFTs. Built using the EtchV1 smart contract, the application allows users to create posts with text and images, which are then minted as NFTs on the blockchain creating a global permissionless social media network.
 
