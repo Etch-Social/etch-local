@@ -145,14 +145,14 @@ const PostCard = ({ post, metadataUrl, contractAddress }) => {
             Etch.social
           </a>
 
-          <a
+          {/* Takes too long to load<a
             href={`https://opensea.io/assets/base/${post.contractAddress}/${post.tokenId}`}
             target="_blank"
             rel="noopener noreferrer"
             className="text-blue-600 hover:text-blue-800 font-medium hover:underline"
           >
             OpenSea
-          </a>
+          </a> */}
           <a
             href={`https://basescan.org/tx/${post.transactionHash}`}
             target="_blank"
