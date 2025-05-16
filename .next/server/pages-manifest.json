@@ -1,7 +1,8 @@
 {
-  "/": "pages/index.html",
-  "/_error": "pages/_error.js",
   "/_app": "pages/_app.js",
+  "/_error": "pages/_error.js",
   "/_document": "pages/_document.js",
-  "/404": "pages/404.html"
+  "/": "pages/index.js",
+  "/api/getArweaveKey": "pages/api/getArweaveKey.js",
+  "/api/getPrivateKey": "pages/api/getPrivateKey.js"
 }

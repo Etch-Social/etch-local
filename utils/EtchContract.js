@@ -90,19 +90,45 @@ class EtchContract {
     const filter = this.contract.filters.PubEvent();
     const logs = await this.contract.queryFilter(filter);
 
-    return logs.map((log) => {
-      const { id, pubkey, created_at, kind, content, tags, sig } = log.args;
-      return {
-        id,
-        pubkey,
-        createdAt: created_at.toString(),
-        kind: kind.toString(),
-        content,
-        tags,
-        sig,
-        tokenId: log.args[1], // The tokenId is in the second position
-      };
-    });
+    // Get all transactions for these events
+    const transactions = await Promise.all(
+      logs.map(async (log) => {
+        const tx = await log.getTransaction();
+        return tx;
+      })
+    );
+
+    return Promise.all(
+      logs.map(async (log, index) => {
+        const { id, pubkey, created_at, kind, content, tags, sig } = log.args;
+        // Decode the transaction input data to get the tokenId
+        const iface = new ethers.utils.Interface(
+          this.contract.interface.format()
+        );
+        const decodedInput = iface.parseTransaction({
+          data: transactions[index].data,
+          value: transactions[index].value,
+        });
+        const tokenId = decodedInput.args[2]; // tokenId is the third argument in createPost
+
+        // Get the token URI for this token
+        const tokenUri = await this.contract.uri(tokenId);
+
+        return {
+          id: id.startsWith("0x") ? id.slice(2) : id,
+          pubkey: pubkey.startsWith("0x") ? pubkey.slice(2) : pubkey,
+          createdAt: created_at.toString(),
+          kind: kind.toString(),
+          content,
+          tags,
+          sig,
+          tokenId: tokenId.toString(),
+          tokenUri, // Add the token URI to the returned data
+          transactionHash: transactions[index].hash,
+          contractAddress: this.contractAddress,
+        };
+      })
+    );
   }
 }
 

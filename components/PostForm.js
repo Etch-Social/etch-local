@@ -1,10 +1,10 @@
 import { useState, useRef } from "react";
 import { ethers } from "ethers";
 
-const PostForm = ({ onSubmit, isSubmitting, maxImages = 5 }) => {
+const PostForm = ({ onSubmit, isSubmitting }) => {
   const [content, setContent] = useState("");
-  const [images, setImages] = useState([]);
-  const [preview, setPreview] = useState([]);
+  const [image, setImage] = useState(null);
+  const [preview, setPreview] = useState(null);
   const fileInputRef = useRef(null);
 
   const handleContentChange = (e) => {
@@ -12,33 +12,21 @@ const PostForm = ({ onSubmit, isSubmitting, maxImages = 5 }) => {
   };
 
   const handleImageChange = (e) => {
-    const selectedFiles = Array.from(e.target.files);
-
-    // Limit to max allowed images
-    const newFiles = selectedFiles.slice(0, maxImages - images.length);
-
-    if (newFiles.length > 0) {
-      setImages([...images, ...newFiles]);
-
-      // Generate previews
-      newFiles.forEach((file) => {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          setPreview((prev) => [...prev, { file, url: reader.result }]);
-        };
-        reader.readAsDataURL(file);
-      });
+    const file = e.target.files[0];
+    if (file) {
+      setImage(file);
+      // Generate preview
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setPreview({ file, url: reader.result });
+      };
+      reader.readAsDataURL(file);
     }
   };
 
-  const removeImage = (index) => {
-    const newImages = [...images];
-    newImages.splice(index, 1);
-    setImages(newImages);
-
-    const newPreviews = [...preview];
-    newPreviews.splice(index, 1);
-    setPreview(newPreviews);
+  const removeImage = () => {
+    setImage(null);
+    setPreview(null);
   };
 
   const triggerFileInput = () => {
@@ -48,8 +36,8 @@ const PostForm = ({ onSubmit, isSubmitting, maxImages = 5 }) => {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    if (!content.trim() && images.length === 0) {
-      alert("Please add some content or at least one image to your post.");
+    if (!content.trim() && !image) {
+      alert("Please add some content or an image to your post.");
       return;
     }
 
@@ -59,7 +47,7 @@ const PostForm = ({ onSubmit, isSubmitting, maxImages = 5 }) => {
 
     await onSubmit({
       content,
-      images,
+      image,
       id,
       pubkey,
       created_at: Math.floor(Date.now() / 1000),
@@ -70,8 +58,8 @@ const PostForm = ({ onSubmit, isSubmitting, maxImages = 5 }) => {
 
     // Reset form after submission
     setContent("");
-    setImages([]);
-    setPreview([]);
+    setImage(null);
+    setPreview(null);
   };
 
   return (
@@ -86,24 +74,22 @@ const PostForm = ({ onSubmit, isSubmitting, maxImages = 5 }) => {
           />
         </div>
 
-        {preview.length > 0 && (
-          <div className="mb-4 grid grid-cols-2 md:grid-cols-3 gap-2">
-            {preview.map((img, index) => (
-              <div key={index} className="relative">
-                <img
-                  src={img.url}
-                  alt={`Preview ${index}`}
-                  className="w-full h-32 object-cover rounded-lg"
-                />
-                <button
-                  type="button"
-                  onClick={() => removeImage(index)}
-                  className="absolute top-1 right-1 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center"
-                >
-                  ×
-                </button>
-              </div>
-            ))}
+        {preview && (
+          <div className="mb-4">
+            <div className="relative">
+              <img
+                src={preview.url}
+                alt="Preview"
+                className="w-full h-64 object-cover rounded-lg"
+              />
+              <button
+                type="button"
+                onClick={removeImage}
+                className="absolute top-1 right-1 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center"
+              >
+                ×
+              </button>
+            </div>
           </div>
         )}
 
@@ -113,16 +99,15 @@ const PostForm = ({ onSubmit, isSubmitting, maxImages = 5 }) => {
               ref={fileInputRef}
               type="file"
               accept="image/*"
-              multiple
               onChange={handleImageChange}
               className="hidden"
             />
             <button
               type="button"
               onClick={triggerFileInput}
-              disabled={images.length >= maxImages || isSubmitting}
+              disabled={!!image || isSubmitting}
               className={`p-2 rounded-full ${
-                images.length >= maxImages
+                image
                   ? "bg-gray-300 cursor-not-allowed"
                   : "bg-blue-100 text-blue-600 hover:bg-blue-200"
               }`}
@@ -142,18 +127,13 @@ const PostForm = ({ onSubmit, isSubmitting, maxImages = 5 }) => {
                 />
               </svg>
             </button>
-            {images.length > 0 && (
-              <span className="text-sm text-gray-500 self-center">
-                {images.length}/{maxImages} images
-              </span>
-            )}
           </div>
 
           <button
             type="submit"
-            disabled={isSubmitting || (!content.trim() && images.length === 0)}
+            disabled={isSubmitting || (!content.trim() && !image)}
             className={`btn ${
-              isSubmitting || (!content.trim() && images.length === 0)
+              isSubmitting || (!content.trim() && !image)
                 ? "bg-blue-300 cursor-not-allowed"
                 : "bg-blue-500 hover:bg-blue-600"
             }`}

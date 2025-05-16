@@ -1,6 +1,12 @@
 # Node modules
 node_modules/
 
+#Next
+.next/
+
+#Arweave Key
+arweave-key.json
+
 # Hardhat files
 artifacts/
 cache/
