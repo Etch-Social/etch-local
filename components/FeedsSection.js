@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { ethers } from "ethers";
 import PostCard from "./PostCard";
 import EtchContract from "../utils/EtchContract";
+import { apiCall } from "../utils/StaticModeHelper";
 
 const FeedsSection = ({ provider }) => {
   const [feedContracts, setFeedContracts] = useState([]);
@@ -15,7 +16,7 @@ const FeedsSection = ({ provider }) => {
   useEffect(() => {
     const loadFeedContracts = async () => {
       try {
-        const response = await fetch("/api/getFeedContracts");
+        const response = await apiCall("/api/getFeedContracts");
         if (!response.ok) throw new Error("Failed to load feed contracts");
         const data = await response.json();
         setFeedContracts(data.contracts || []);
@@ -80,7 +81,7 @@ const FeedsSection = ({ provider }) => {
       }
 
       // Save the new contract address
-      const response = await fetch("/api/saveFeedContract", {
+      const response = await apiCall("/api/saveFeedContract", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -105,7 +106,7 @@ const FeedsSection = ({ provider }) => {
 
   const handleRemoveContract = async (contractAddress) => {
     try {
-      const response = await fetch("/api/removeFeedContract", {
+      const response = await apiCall("/api/removeFeedContract", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

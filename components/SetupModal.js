@@ -3,10 +3,12 @@ import { ethers } from "ethers";
 import { useWallet } from "../contexts/WalletContext";
 import EtchV1Bytecode from "../artifacts/contracts/EtchV1.sol/EtchV1.json";
 import { generateSecretKey } from "nostr-tools/pure";
+import { apiCall, getContractAddress } from "../utils/StaticModeHelper";
 
 const SetupModal = ({ isOpen, onClose, onSetupComplete }) => {
   const {
     connectWallet,
+    connectAccountsOnly,
     isConnecting,
     error: walletError,
     account,
@@ -20,15 +22,16 @@ const SetupModal = ({ isOpen, onClose, onSetupComplete }) => {
   const [saveStatus, setSaveStatus] = useState(null);
   const [privateKeySaveStatus, setPrivateKeySaveStatus] = useState(null);
   const [isSwitchingNetwork, setIsSwitchingNetwork] = useState(false);
-  const [currentChainId, setCurrentChainId] = useState(null);
   const [existingContractAddress, setExistingContractAddress] = useState(null);
+  const [contractAddressInput, setContractAddressInput] = useState("");
+  const [contractSaveStatus, setContractSaveStatus] = useState(null);
 
   // Load saved Arweave key and contract address on component mount
   useEffect(() => {
     const loadData = async () => {
       try {
         // Load Arweave key
-        const keyResponse = await fetch("/api/getArweaveKey");
+        const keyResponse = await apiCall("/api/getArweaveKey");
         if (keyResponse.ok) {
           const data = await keyResponse.json();
           if (data.key) {
@@ -37,7 +40,7 @@ const SetupModal = ({ isOpen, onClose, onSetupComplete }) => {
         }
 
         // Load private key
-        const privateKeyResponse = await fetch("/api/getPrivateKey");
+        const privateKeyResponse = await apiCall("/api/getPrivateKey");
         if (privateKeyResponse.ok) {
           const data = await privateKeyResponse.json();
           if (data.key) {
@@ -46,9 +49,7 @@ const SetupModal = ({ isOpen, onClose, onSetupComplete }) => {
         }
 
         // Load existing contract address
-        const contractAddress =
-          process.env.NEXT_PUBLIC_CONTRACT_ADDRESS ||
-          localStorage.getItem("CONTRACT_ADDRESS");
+        const contractAddress = getContractAddress();
         if (contractAddress) {
           setExistingContractAddress(contractAddress);
         }
@@ -57,30 +58,6 @@ const SetupModal = ({ isOpen, onClose, onSetupComplete }) => {
       }
     };
     loadData();
-  }, []);
-
-  // Monitor chainId changes
-  useEffect(() => {
-    if (window.ethereum) {
-      const checkChainId = async () => {
-        try {
-          const id = await window.ethereum.request({ method: "eth_chainId" });
-          setCurrentChainId(id);
-        } catch (err) {
-          console.error("Error checking chainId:", err);
-        }
-      };
-
-      // Check immediately
-      checkChainId();
-
-      // Set up listener for chain changes
-      window.ethereum.on("chainChanged", checkChainId);
-
-      return () => {
-        window.ethereum.removeListener("chainChanged", checkChainId);
-      };
-    }
   }, []);
 
   const handleArweaveKeyChange = (e) => {
@@ -102,7 +79,7 @@ const SetupModal = ({ isOpen, onClose, onSetupComplete }) => {
 
   const savePrivateKey = async () => {
     try {
-      const response = await fetch("/api/savePrivateKey", {
+      const response = await apiCall("/api/savePrivateKey", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -124,12 +101,35 @@ const SetupModal = ({ isOpen, onClose, onSetupComplete }) => {
   };
 
   const isOnBaseNetwork =
-    currentChainId === "0x2105" || currentChainId === "0x14a33"; // BASE mainnet or testnet
+    chainId === "0x2105" ||
+    chainId === "0x14a33" || // BASE mainnet or testnet (hex)
+    chainId === 8453 ||
+    chainId === 84532; // BASE mainnet or testnet (decimal)
 
   const handleConnectWallet = async () => {
     setIsSwitchingNetwork(true);
+    console.log("SetupModal: Starting wallet connection...");
+    console.log("SetupModal: Current chainId:", chainId);
+    console.log("SetupModal: Is on Base network:", isOnBaseNetwork);
     try {
-      await connectWallet();
+      // Just connect accounts, don't do network switching yet
+      await connectAccountsOnly();
+      console.log("SetupModal: Wallet connection completed");
+    } catch (error) {
+      console.error("SetupModal: Wallet connection failed:", error);
+    } finally {
+      setIsSwitchingNetwork(false);
+    }
+  };
+
+  const handleSwitchNetwork = async () => {
+    setIsSwitchingNetwork(true);
+    console.log("SetupModal: Starting network switch...");
+    try {
+      await connectWallet(); // This will handle network switching
+      console.log("SetupModal: Network switch completed");
+    } catch (error) {
+      console.error("SetupModal: Network switch failed:", error);
     } finally {
       setIsSwitchingNetwork(false);
     }
@@ -137,16 +137,18 @@ const SetupModal = ({ isOpen, onClose, onSetupComplete }) => {
 
   const saveArweaveKey = async () => {
     try {
-      // Validate that it's valid JSON
-      JSON.parse(arweaveKey);
+      // Allow empty key (for deletion), otherwise validate JSON
+      if (arweaveKey.trim() !== "") {
+        JSON.parse(arweaveKey);
+      }
 
       // Save to project root via API
-      const response = await fetch("/api/saveArweaveKey", {
+      const response = await apiCall("/api/saveArweaveKey", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ key: arweaveKey }),
+        body: JSON.stringify({ key: arweaveKey.trim() }),
       });
 
       if (!response.ok) {
@@ -154,11 +156,17 @@ const SetupModal = ({ isOpen, onClose, onSetupComplete }) => {
       }
 
       setSaveStatus("success");
+      // Update success message based on whether key was saved or removed
+      if (arweaveKey.trim() === "") {
+        setSaveStatus("removed");
+      } else {
+        setSaveStatus("success");
+      }
       return true;
     } catch (err) {
       setSaveStatus("error");
       alert(
-        "Invalid Arweave key format or failed to save. Please enter valid JSON."
+        "Invalid Arweave key format or failed to save. Please enter valid JSON or leave empty to remove the key."
       );
       return false;
     }
@@ -166,6 +174,54 @@ const SetupModal = ({ isOpen, onClose, onSetupComplete }) => {
 
   const handleSaveKey = async () => {
     await saveArweaveKey();
+  };
+
+  const handleContractAddressChange = (e) => {
+    setContractAddressInput(e.target.value);
+    setContractSaveStatus(null);
+  };
+
+  const saveContractAddress = async () => {
+    if (!contractAddressInput.trim()) {
+      setContractSaveStatus("error");
+      alert("Please enter a contract address");
+      return;
+    }
+
+    // Basic validation for Ethereum address format
+    if (!ethers.utils.isAddress(contractAddressInput.trim())) {
+      setContractSaveStatus("error");
+      alert("Please enter a valid Ethereum address");
+      return;
+    }
+
+    try {
+      const address = contractAddressInput.trim();
+
+      // Save to localStorage
+      localStorage.setItem("CONTRACT_ADDRESS", address);
+      setExistingContractAddress(address);
+
+      // Save to backend
+      const response = await apiCall("/api/saveContractAddress", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ address }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to save contract address to backend");
+      }
+
+      setContractSaveStatus("success");
+      setContractAddressInput(""); // Clear the input after successful save
+    } catch (err) {
+      console.error("Error saving contract address:", err);
+      setContractSaveStatus("error");
+      alert("Failed to save contract address. Please try again.");
+    }
   };
 
   const deployContract = async () => {
@@ -207,7 +263,7 @@ const SetupModal = ({ isOpen, onClose, onSetupComplete }) => {
       setExistingContractAddress(contract.address);
 
       // Save the contract address to the backend
-      const response = await fetch("/api/saveContractAddress", {
+      const response = await apiCall("/api/saveContractAddress", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -244,28 +300,64 @@ const SetupModal = ({ isOpen, onClose, onSetupComplete }) => {
           {/* Wallet Connection Section */}
           <div className="border-b pb-4">
             <h3 className="font-medium mb-2">
-              1. Connect Wallet (Base for now)
+              1. Connect Wallet & Switch to Base Network
             </h3>
-            {account ? (
-              <div className="text-sm text-gray-600 mb-2">
-                Connected: {account.substring(0, 6)}...
-                {account.substring(account.length - 4)}
+
+            {/* Step 1: Connect Wallet */}
+            {!account ? (
+              <div className="mb-3">
+                <p className="text-sm text-gray-600 mb-2">
+                  First, connect your MetaMask wallet:
+                </p>
+                <button
+                  onClick={handleConnectWallet}
+                  disabled={isConnecting || isSwitchingNetwork}
+                  className="btn w-full bg-blue-500 hover:bg-blue-600"
+                >
+                  {isSwitchingNetwork || isConnecting
+                    ? "Connecting..."
+                    : "Connect Wallet"}
+                </button>
               </div>
             ) : (
-              <button
-                onClick={handleConnectWallet}
-                disabled={isConnecting || isSwitchingNetwork}
-                className="btn w-full"
-              >
-                {isSwitchingNetwork
-                  ? "Switching to BASE Network..."
-                  : isConnecting
-                  ? "Connecting..."
-                  : isOnBaseNetwork
-                  ? "Connect Wallet"
-                  : "Switch to Base Network"}
-              </button>
+              <div className="mb-3">
+                <p className="text-sm text-green-600 mb-1">
+                  ✓ Wallet Connected
+                </p>
+                <p className="text-sm text-gray-600">
+                  {account.substring(0, 6)}...
+                  {account.substring(account.length - 4)}
+                </p>
+              </div>
             )}
+
+            {/* Step 2: Switch Network (only show if wallet is connected) */}
+            {account && !isOnBaseNetwork && (
+              <div className="mb-3">
+                <p className="text-sm text-gray-600 mb-2">
+                  Now switch to Base network:
+                </p>
+                <button
+                  onClick={handleSwitchNetwork}
+                  disabled={isSwitchingNetwork}
+                  className="btn w-full bg-orange-500 hover:bg-orange-600"
+                >
+                  {isSwitchingNetwork
+                    ? "Switching to BASE Network..."
+                    : "Switch to Base Network"}
+                </button>
+              </div>
+            )}
+
+            {/* Success state */}
+            {account && isOnBaseNetwork && (
+              <div className="mb-3">
+                <p className="text-sm text-green-600">
+                  ✓ Connected to Base Network
+                </p>
+              </div>
+            )}
+
             {walletError && (
               <p className="text-red-500 text-sm mt-1">{walletError}</p>
             )}
@@ -309,19 +401,25 @@ const SetupModal = ({ isOpen, onClose, onSetupComplete }) => {
           {/* Arweave Key Section */}
           <div className="border-b pb-4">
             <h3 className="font-medium mb-2">
-              3. Arweave Key{" "}
+              3. Arweave Key (Optional){" "}
               <a
                 href="https://arweave.app/"
                 target="_blank"
                 rel="noopener noreferrer"
+                className="text-blue-500 hover:text-blue-600"
               >
-                (https://arweave.app/)
+                Get one here
               </a>
             </h3>
+            <p className="text-sm text-gray-600 mb-2">
+              Required only if you want to attach images to your posts. You can
+              skip this step and add it later. Leave empty to remove an existing
+              key.
+            </p>
             <textarea
               value={arweaveKey}
               onChange={handleArweaveKeyChange}
-              placeholder="Paste your Arweave JWK here. Example: {d:xyx...very long ...qi:xyx}"
+              placeholder="Paste your Arweave JWK here (Example: {d:xyx...very long ...qi:xyx})"
               className="input min-h-[100px] mb-2"
             />
             <div className="flex items-center justify-between">
@@ -336,6 +434,11 @@ const SetupModal = ({ isOpen, onClose, onSetupComplete }) => {
                   Key saved successfully!
                 </span>
               )}
+              {saveStatus === "removed" && (
+                <span className="text-green-500 text-sm">
+                  Key removed successfully!
+                </span>
+              )}
               {saveStatus === "error" && (
                 <span className="text-red-500 text-sm">Invalid key format</span>
               )}
@@ -344,7 +447,7 @@ const SetupModal = ({ isOpen, onClose, onSetupComplete }) => {
 
           {/* Contract Deployment Section */}
           <div className="border-b pb-4">
-            <h3 className="font-medium mb-2">4. Deploy Contract</h3>
+            <h3 className="font-medium mb-2">4. Contract Setup</h3>
             {existingContractAddress ? (
               <div className="mb-4">
                 <p className="text-sm text-gray-600 mb-2">
@@ -355,17 +458,61 @@ const SetupModal = ({ isOpen, onClose, onSetupComplete }) => {
                 </p>
               </div>
             ) : null}
-            <button
-              onClick={deployContract}
-              disabled={isDeploying}
-              className="btn w-full bg-green-500 hover:bg-green-600"
-            >
-              {isDeploying
-                ? "Deploying..."
-                : existingContractAddress
-                ? "Deploy New Contract"
-                : "Deploy Contract"}
-            </button>
+
+            {/* Manual Contract Address Entry */}
+            <div className="mb-4">
+              <p className="text-sm text-gray-600 mb-2">
+                Enter existing contract address:
+              </p>
+              <div className="flex items-center space-x-2 mb-2">
+                <input
+                  type="text"
+                  value={contractAddressInput}
+                  onChange={handleContractAddressChange}
+                  placeholder="0x..."
+                  className="input flex-grow"
+                />
+                <button
+                  onClick={saveContractAddress}
+                  className="btn bg-blue-500 hover:bg-blue-600"
+                >
+                  Save
+                </button>
+              </div>
+              {contractSaveStatus === "success" && (
+                <p className="text-green-500 text-sm">
+                  Address saved successfully!
+                </p>
+              )}
+              {contractSaveStatus === "error" && (
+                <p className="text-red-500 text-sm">Invalid address</p>
+              )}
+            </div>
+
+            {/* OR Separator */}
+            <div className="flex items-center my-4">
+              <div className="flex-grow border-t border-gray-300"></div>
+              <span className="px-4 text-gray-500 text-sm font-medium">OR</span>
+              <div className="flex-grow border-t border-gray-300"></div>
+            </div>
+
+            {/* Deploy New Contract */}
+            <div>
+              <p className="text-sm text-gray-600 mb-2">
+                Deploy a new contract:
+              </p>
+              <button
+                onClick={deployContract}
+                disabled={isDeploying}
+                className="btn w-full bg-green-500 hover:bg-green-600"
+              >
+                {isDeploying
+                  ? "Deploying..."
+                  : existingContractAddress
+                  ? "Deploy New Contract"
+                  : "Deploy Contract"}
+              </button>
+            </div>
             {deployError && (
               <p className="text-red-500 text-sm mt-1">{deployError}</p>
             )}
@@ -385,9 +532,11 @@ const SetupModal = ({ isOpen, onClose, onSetupComplete }) => {
           <div className="flex justify-end">
             <button
               onClick={handleComplete}
-              disabled={!account || !existingContractAddress}
+              disabled={
+                !account || !existingContractAddress || !isOnBaseNetwork
+              }
               className={`btn ${
-                !account || !existingContractAddress
+                !account || !existingContractAddress || !isOnBaseNetwork
                   ? "opacity-50 cursor-not-allowed"
                   : ""
               }`}

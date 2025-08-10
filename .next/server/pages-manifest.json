@@ -1,6 +1,1 @@
-{
-  "/_app": "pages/_app.js",
-  "/_error": "pages/_error.js",
-  "/_document": "pages/_document.js",
-  "/": "pages/index.js"
-}
+{"/_error":"pages/_error.js","/_app":"pages/_app.js","/api/getArweaveKey":"pages/api/getArweaveKey.js","/api/getPrivateKey":"pages/api/getPrivateKey.js","/api/getFeedContracts":"pages/api/getFeedContracts.js","/api/removeFeedContract":"pages/api/removeFeedContract.js","/api/saveArweaveKey":"pages/api/saveArweaveKey.js","/api/savePrivateKey":"pages/api/savePrivateKey.js","/api/saveFeedContract":"pages/api/saveFeedContract.js","/":"pages/index.html","/api/saveContractAddress":"pages/api/saveContractAddress.js","/_document":"pages/_document.js","/404":"pages/404.html"}

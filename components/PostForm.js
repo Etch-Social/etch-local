@@ -1,7 +1,7 @@
 import { useState, useRef } from "react";
 import { ethers } from "ethers";
 
-const PostForm = ({ onSubmit, isSubmitting }) => {
+const PostForm = ({ onSubmit, isSubmitting, hasArweaveStorage }) => {
   const [content, setContent] = useState("");
   const [image, setImage] = useState(null);
   const [preview, setPreview] = useState(null);
@@ -30,6 +30,12 @@ const PostForm = ({ onSubmit, isSubmitting }) => {
   };
 
   const triggerFileInput = () => {
+    if (!hasArweaveStorage) {
+      alert(
+        "You need to configure an Arweave key in Setup to attach images. Go to Setup > Step 3 to add your Arweave key."
+      );
+      return;
+    }
     fileInputRef.current.click();
   };
 
@@ -109,8 +115,15 @@ const PostForm = ({ onSubmit, isSubmitting }) => {
               className={`p-2 rounded-full ${
                 image
                   ? "bg-gray-300 cursor-not-allowed"
+                  : !hasArweaveStorage
+                  ? "bg-orange-100 text-orange-600 hover:bg-orange-200"
                   : "bg-blue-100 text-blue-600 hover:bg-blue-200"
               }`}
+              title={
+                !hasArweaveStorage
+                  ? "Arweave key required for image uploads"
+                  : "Attach an image"
+              }
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"

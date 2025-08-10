@@ -4,10 +4,12 @@ import { ethers } from "ethers";
 import PostForm from "../components/PostForm";
 import PostCard from "../components/PostCard";
 import SetupModal from "../components/SetupModal";
+import AboutModal from "../components/AboutModal";
 import TabNavigation from "../components/TabNavigation";
 import FeedsSection from "../components/FeedsSection";
 import { WalletProvider, useWallet } from "../contexts/WalletContext";
 import ArweaveStorage from "../utils/ArweaveStorage";
+import { apiCall, getContractAddress } from "../utils/StaticModeHelper";
 
 import { getPublicKey, finalizeEvent, verifyEvent } from "nostr-tools/pure";
 import { hexToBytes } from "@noble/hashes/utils";
@@ -29,26 +31,27 @@ function Home() {
   const [loading, setLoading] = useState(true);
   const [arweaveStorage, setArweaveStorage] = useState(null);
   const [showSetupModal, setShowSetupModal] = useState(false);
+  const [showAboutModal, setShowAboutModal] = useState(false);
   const [activeTab, setActiveTab] = useState("publish");
+  const [arweaveRefreshKey, setArweaveRefreshKey] = useState(0);
 
   // Check if setup is required
   useEffect(() => {
     let isMounted = true;
     const checkSetup = async () => {
       try {
-        const contractAddress =
-          process.env.NEXT_PUBLIC_CONTRACT_ADDRESS ||
-          localStorage.getItem("CONTRACT_ADDRESS");
+        const contractAddress = getContractAddress();
 
         // Fetch Arweave key from API
-        const response = await fetch("/api/getArweaveKey");
+        const response = await apiCall("/api/getArweaveKey");
         const data = await response.json();
         const hasArweaveKey = data.key !== null;
 
         // Only update state if component is still mounted
         if (isMounted) {
           // Only show setup modal if we're certain something is missing
-          const needsSetup = !account || !contractAddress || !hasArweaveKey;
+          // Arweave key is now optional
+          const needsSetup = !account || !contractAddress;
           setShowSetupModal(needsSetup);
         }
       } catch (err) {
@@ -75,7 +78,10 @@ function Home() {
   useEffect(() => {
     const initArweave = async () => {
       try {
-        const response = await fetch("/api/getArweaveKey");
+        // Reset arweave storage first
+        setArweaveStorage(null);
+
+        const response = await apiCall("/api/getArweaveKey");
         if (!response.ok) {
           throw new Error("Failed to fetch Arweave key");
         }
@@ -90,7 +96,7 @@ function Home() {
       }
     };
     initArweave();
-  }, []);
+  }, [arweaveRefreshKey]);
 
   // Load posts from contract
   const loadPosts = useCallback(async () => {
@@ -119,8 +125,16 @@ function Home() {
 
   // Handle post submission
   const handleSubmitPost = async (postData) => {
-    if (!account || !etchContract || !arweaveStorage) {
-      setError("Please connect your wallet and ensure Arweave is configured");
+    if (!account || !etchContract) {
+      setError("Please connect your wallet");
+      return;
+    }
+
+    // Check if trying to upload image without Arweave key
+    if (postData.image && !arweaveStorage) {
+      setError(
+        "You need to configure an Arweave key in Setup to attach images. Go to Setup > Step 3 to add your Arweave key."
+      );
       return;
     }
 
@@ -129,7 +143,7 @@ function Home() {
 
     try {
       // Get private key from API
-      const response = await fetch("/api/getPrivateKey");
+      const response = await apiCall("/api/getPrivateKey");
       if (!response.ok) {
         throw new Error("Failed to fetch private key");
       }
@@ -163,15 +177,7 @@ function Home() {
         tags: [
           ["l", "app-etch"],
           ["p", pk],
-          [
-            "blockchain",
-            "base",
-            `${
-              process.env.NEXT_PUBLIC_CONTRACT_ADDRESS ||
-              localStorage.getItem("CONTRACT_ADDRESS")
-            }`,
-            `${tokenId}`,
-          ],
+          ["blockchain", "base", `${getContractAddress()}`, `${tokenId}`],
         ],
         content: imageUrl
           ? `${postData.content}\n\n${imageUrl}`
@@ -185,13 +191,45 @@ function Home() {
       }
 
       // Upload metadata to Arweave
-      const metadataUpload = await arweaveStorage.uploadMetadata(
-        postData.content,
-        imageUrl,
-        event.tags,
-        event.pubkey,
-        event
-      );
+      let metadataUpload;
+      if (arweaveStorage) {
+        metadataUpload = await arweaveStorage.uploadMetadata(
+          postData.content,
+          imageUrl,
+          event.tags,
+          event.pubkey,
+          event
+        );
+      } else {
+        // Fallback when no Arweave storage is configured
+        // Create a simple metadata object without uploading to Arweave
+        const metadata = {
+          name: `${
+            event.pubkey
+          }-${Date.now().toString()}-${postData.content.slice(0, 10)}`,
+          description: postData.content,
+          attributes: [
+            { trait_type: "kind", value: event.kind },
+            { trait_type: "sig", value: event.sig },
+            { trait_type: "id", value: event.id },
+            { trait_type: "pubkey", value: event.pubkey },
+            { trait_type: "created_at", value: event.created_at },
+            { trait_type: "content", value: event.content },
+          ],
+          image:
+            imageUrl ||
+            "https://arweave.net/dWPZeOyiaD4h7CUpVKnnjAVPhEOrf5kk2Blg_YRBWuQ",
+        };
+
+        // Use a data URI as fallback metadata URL
+        const metadataJson = JSON.stringify(metadata);
+        const encodedMetadata = btoa(metadataJson);
+        metadataUpload = {
+          url: `data:application/json;base64,${encodedMetadata}`,
+          id: "local-metadata",
+          status: "local",
+        };
+      }
 
       // Create post on contract
       const tx = await etchContract.createPost(
@@ -223,12 +261,14 @@ function Home() {
 
   const handleSetupComplete = () => {
     setShowSetupModal(false);
+    // Trigger ArweaveStorage refresh to pick up any key changes
+    setArweaveRefreshKey((prev) => prev + 1);
   };
 
   return (
     <div className="min-h-screen py-4 bg-gray-100">
       <Head>
-        <title>Etch Social - Local Posts</title>
+        <title>Etch Fully - Onchain Content</title>
         <meta name="description" content="Create and view NFT posts locally" />
         <link rel="icon" href="/favicon.ico" />
       </Head>
@@ -241,9 +281,13 @@ function Home() {
           >
             Setup
           </button>
-          <h1 className="text-2xl font-bold text-blue-600 mb-2">
-            Etch Social - Local
-          </h1>
+          <button
+            onClick={() => setShowAboutModal(true)}
+            className="absolute right-0 top-0 px-3 py-1 text-sm bg-gray-500 text-white rounded hover:bg-gray-600 transition-colors"
+          >
+            About
+          </button>
+          <h1 className="text-2xl font-bold text-blue-600 mb-2">Etch It</h1>
           <p className="text-gray-600 mb-4">
             Publish content direct to blockchains
           </p>
@@ -262,11 +306,7 @@ function Home() {
                 Connected: {account.substring(0, 6)}...
                 {account.substring(account.length - 4)}
               </div>
-              <div>
-                Contract:{" "}
-                {process.env.NEXT_PUBLIC_CONTRACT_ADDRESS ||
-                  localStorage.getItem("CONTRACT_ADDRESS")}
-              </div>
+              <div>Contract: {getContractAddress()}</div>
             </div>
           )}
         </header>
@@ -283,10 +323,11 @@ function Home() {
         {/* Publish Tab Content */}
         {activeTab === "publish" && (
           <>
-            {account && arweaveStorage && (
+            {account && (
               <PostForm
                 onSubmit={handleSubmitPost}
                 isSubmitting={isSubmitting}
+                hasArweaveStorage={!!arweaveStorage}
               />
             )}
 
@@ -298,7 +339,7 @@ function Home() {
               <div className="text-center text-gray-500">Loading posts...</div>
             ) : posts.length === 0 ? (
               <div className="text-center text-gray-500">
-                No posts found. Create the first one!
+                No posts found. Create your first one!
               </div>
             ) : (
               <div className="space-y-4">
@@ -322,6 +363,11 @@ function Home() {
         isOpen={showSetupModal}
         onClose={() => setShowSetupModal(false)}
         onSetupComplete={handleSetupComplete}
+      />
+
+      <AboutModal
+        isOpen={showAboutModal}
+        onClose={() => setShowAboutModal(false)}
       />
     </div>
   );

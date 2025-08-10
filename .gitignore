@@ -3,6 +3,7 @@ node_modules/
 
 #Next
 .next/
+out/
 
 #Arweave Key
 arweave-key.json

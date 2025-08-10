@@ -8,12 +8,21 @@ export default async function handler(req, res) {
 
   try {
     const { key } = req.body;
+    const filePath = path.join(process.cwd(), "arweave-key.json");
+
+    // If key is empty, delete the file to remove the key
+    if (!key || key.trim() === "") {
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+      }
+      res.status(200).json({ message: "Key removed successfully" });
+      return;
+    }
 
     // Validate the key is valid JSON
     JSON.parse(key);
 
     // Write the key to arweave-key.json in the project root
-    const filePath = path.join(process.cwd(), "arweave-key.json");
     fs.writeFileSync(filePath, key);
 
     res.status(200).json({ message: "Key saved successfully" });
