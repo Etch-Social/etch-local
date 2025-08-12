@@ -30,12 +30,27 @@ const PostForm = ({ onSubmit, isSubmitting, hasArweaveStorage }) => {
   };
 
   const triggerFileInput = () => {
-    if (!hasArweaveStorage) {
+    let canUpload = !!hasArweaveStorage;
+    if (!canUpload) {
+      try {
+        const keyStr =
+          typeof window !== "undefined"
+            ? window.localStorage.getItem("ARWEAVE_KEY")
+            : null;
+        if (keyStr && keyStr.trim() !== "") {
+          // If a key exists in localStorage, allow image selection
+          canUpload = true;
+        }
+      } catch (_) {}
+    }
+
+    if (!canUpload) {
       alert(
         "You need to configure an Arweave key in Setup to attach images. Go to Setup > Step 3 to add your Arweave key."
       );
       return;
     }
+
     fileInputRef.current.click();
   };
 
@@ -160,3 +175,5 @@ const PostForm = ({ onSubmit, isSubmitting, hasArweaveStorage }) => {
 };
 
 export default PostForm;
+
+

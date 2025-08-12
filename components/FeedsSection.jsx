@@ -2,7 +2,6 @@ import { useState, useEffect } from "react";
 import { ethers } from "ethers";
 import PostCard from "./PostCard";
 import EtchContract from "../utils/EtchContract";
-import { apiCall } from "../utils/StaticModeHelper";
 
 const FeedsSection = ({ provider }) => {
   const [feedContracts, setFeedContracts] = useState([]);
@@ -16,10 +15,12 @@ const FeedsSection = ({ provider }) => {
   useEffect(() => {
     const loadFeedContracts = async () => {
       try {
-        const response = await apiCall("/api/getFeedContracts");
-        if (!response.ok) throw new Error("Failed to load feed contracts");
-        const data = await response.json();
-        setFeedContracts(data.contracts || []);
+        const stored =
+          typeof window !== "undefined"
+            ? window.localStorage.getItem("FEED_CONTRACTS")
+            : null;
+        const list = stored ? JSON.parse(stored) : [];
+        setFeedContracts(Array.isArray(list) ? list : []);
       } catch (err) {
         console.error("Error loading feed contracts:", err);
         setError("Failed to load feed contracts");
@@ -80,21 +81,12 @@ const FeedsSection = ({ provider }) => {
         throw new Error("Invalid contract address");
       }
 
-      // Save the new contract address
-      const response = await apiCall("/api/saveFeedContract", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ address: newContractAddress }),
-      });
-
-      if (!response.ok) {
-        throw new Error("Failed to save feed contract");
+      // Save the new contract address to localStorage
+      const nextList = Array.from(new Set([...(feedContracts || []), newContractAddress]));
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem("FEED_CONTRACTS", JSON.stringify(nextList));
       }
-
-      // Add to local state
-      setFeedContracts((prev) => [...prev, newContractAddress]);
+      setFeedContracts(nextList);
       setNewContractAddress("");
     } catch (err) {
       console.error("Error adding feed contract:", err);
@@ -106,22 +98,11 @@ const FeedsSection = ({ provider }) => {
 
   const handleRemoveContract = async (contractAddress) => {
     try {
-      const response = await apiCall("/api/removeFeedContract", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ address: contractAddress }),
-      });
-
-      if (!response.ok) {
-        throw new Error("Failed to remove feed contract");
+      const nextList = (feedContracts || []).filter((addr) => addr !== contractAddress);
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem("FEED_CONTRACTS", JSON.stringify(nextList));
       }
-
-      // Remove from local state
-      setFeedContracts((prev) =>
-        prev.filter((addr) => addr !== contractAddress)
-      );
+      setFeedContracts(nextList);
     } catch (err) {
       console.error("Error removing feed contract:", err);
       setError(err.message || "Failed to remove feed contract");
@@ -216,3 +197,5 @@ const FeedsSection = ({ provider }) => {
 };
 
 export default FeedsSection;
+
+

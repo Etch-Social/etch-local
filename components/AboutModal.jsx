@@ -128,3 +128,5 @@ export default function AboutModal({ isOpen, onClose }) {
     </div>
   );
 }
+
+

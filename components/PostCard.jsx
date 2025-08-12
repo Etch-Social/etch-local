@@ -49,7 +49,6 @@ const PostCard = ({ post, metadataUrl, contractAddress }) => {
         setLoading(false);
       }
     };
-    console.log("post ID:: ", post.id);
 
     // Create nip19 of event id
     const _nip19Id = nip19.noteEncode(post.id);
@@ -187,3 +186,5 @@ const PostCard = ({ post, metadataUrl, contractAddress }) => {
 };
 
 export default PostCard;
+
+

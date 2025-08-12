@@ -8,7 +8,7 @@ import {
 } from "react";
 import { ethers } from "ethers";
 import EtchContract from "../utils/EtchContract";
-import { getContractAddress } from "../utils/StaticModeHelper";
+// No env helper; read contract address directly from localStorage
 
 // Create the context
 const WalletContext = createContext();
@@ -19,12 +19,14 @@ export function WalletProvider({ children }) {
   const [provider, setProvider] = useState(null);
   const [signer, setSigner] = useState(null);
   const [etchContract, setEtchContract] = useState(null);
+  const [contractAddress, setContractAddress] = useState(null);
   const [isConnecting, setIsConnecting] = useState(false);
   const [error, setError] = useState(null);
   const [chainId, setChainId] = useState(null);
   const [networkName, setNetworkName] = useState(null);
   const hasAttemptedAutoConnect = useRef(false);
   const hasInitializedProvider = useRef(false);
+  const ENABLE_AUTO_CONNECT = false;
 
   // Initialize providers and get initial chainId
   useEffect(() => {
@@ -50,9 +52,7 @@ export function WalletProvider({ children }) {
 
       if (typeof window !== "undefined" && window.ethereum) {
         try {
-          const web3Provider = new ethers.providers.Web3Provider(
-            window.ethereum
-          );
+          const web3Provider = new ethers.providers.Web3Provider(window.ethereum);
           setProvider(web3Provider);
 
           // Wait a bit for MetaMask to be fully loaded
@@ -64,26 +64,17 @@ export function WalletProvider({ children }) {
             // Add timeout to ethers getNetwork call
             const networkPromise = web3Provider.getNetwork();
             const timeoutPromise = new Promise((_, reject) =>
-              setTimeout(
-                () => reject(new Error("Ethers getNetwork timed out")),
-                5000
-              )
+              setTimeout(() => reject(new Error("Ethers getNetwork timed out")), 5000)
             );
 
-            const network = await Promise.race([
-              networkPromise,
-              timeoutPromise,
-            ]);
+            const network = await Promise.race([networkPromise, timeoutPromise]);
             console.log("WalletContext: Got network from provider:", network);
             const hexChainId = "0x" + network.chainId.toString(16);
             console.log("WalletContext: ChainId:", hexChainId);
             setChainId(hexChainId);
             setNetworkName(network.name);
           } catch (networkError) {
-            console.warn(
-              "WalletContext: Ethers getNetwork failed:",
-              networkError
-            );
+            console.warn("WalletContext: Ethers getNetwork failed:", networkError);
 
             // Fallback to direct MetaMask chainId request
             try {
@@ -104,16 +95,10 @@ export function WalletProvider({ children }) {
                 directChainIdPromise,
                 directTimeoutPromise,
               ]);
-              console.log(
-                "WalletContext: Got chainId from direct request:",
-                directChainId
-              );
+              console.log("WalletContext: Got chainId from direct request:", directChainId);
               setChainId(directChainId);
             } catch (directError) {
-              console.warn(
-                "WalletContext: Direct chainId request also failed:",
-                directError
-              );
+              console.warn("WalletContext: Direct chainId request also failed:", directError);
               // Don't fail initialization, just leave chainId as null for now
             }
           }
@@ -123,18 +108,30 @@ export function WalletProvider({ children }) {
         }
       } else {
         console.log("WalletContext: No MetaMask available");
-        setError(
-          "MetaMask is required to use this application. Please install MetaMask."
-        );
+        setError("MetaMask is required to use this application. Please install MetaMask.");
       }
     };
 
     initializeProvider();
   }, []);
 
-  // Initialize contract when provider is ready
+  // Initialize contract when provider or contract address changes
   useEffect(() => {
-    const contractAddress = getContractAddress();
+    if (provider) {
+      // Load initial contract address from env/localStorage on first run
+      if (!contractAddress) {
+        const initialAddress =
+          typeof window !== "undefined"
+            ? window.localStorage.getItem("CONTRACT_ADDRESS")
+            : null;
+        if (initialAddress) {
+          setContractAddress(initialAddress);
+        }
+      }
+    }
+  }, [provider]);
+
+  useEffect(() => {
     if (provider && contractAddress) {
       try {
         const contractInstance = new EtchContract(contractAddress, provider);
@@ -150,9 +147,7 @@ export function WalletProvider({ children }) {
         setError("Failed to initialize contract");
       }
     }
-  }, [provider, signer]);
-
-  // Network info is now handled during provider initialization, removed redundant useEffect
+  }, [provider, signer, contractAddress]);
 
   // Connect wallet function
   const connectWallet = useCallback(async () => {
@@ -172,21 +167,26 @@ export function WalletProvider({ children }) {
       const web3Provider = new ethers.providers.Web3Provider(window.ethereum);
       console.log("WalletContext: Web3Provider created");
 
-      // First, request account access to trigger MetaMask popup
-      console.log(
-        "WalletContext: Requesting accounts first to trigger MetaMask popup..."
-      );
-      const accountsPromise = window.ethereum.request({
-        method: "eth_requestAccounts",
-      });
+      // First, explicitly request permissions so the user can pick the account
+      // This helps ensure a prompt shows even if the site already had access
+      console.log("WalletContext: Requesting eth_accounts permission...");
+      try {
+        await window.ethereum.request({
+          method: "wallet_requestPermissions",
+          params: [{ eth_accounts: {} }],
+        });
+      } catch (permErr) {
+        console.warn("WalletContext: wallet_requestPermissions failed or not supported:", permErr);
+      }
+
+      // Then request accounts (will resolve to the selection from the permissions prompt)
+      console.log("WalletContext: Requesting accounts to trigger MetaMask popup (or use granted perms)...");
+      const accountsPromise = window.ethereum.request({ method: "eth_requestAccounts" });
       const accountsTimeoutPromise = new Promise((_, reject) =>
         setTimeout(() => reject(new Error("Account request timed out")), 30000)
       );
 
-      const accounts = await Promise.race([
-        accountsPromise,
-        accountsTimeoutPromise,
-      ]);
+      const accounts = await Promise.race([accountsPromise, accountsTimeoutPromise]);
       console.log("WalletContext: Got accounts:", accounts);
 
       if (!accounts || accounts.length === 0) {
@@ -194,27 +194,20 @@ export function WalletProvider({ children }) {
       }
 
       // Now get the current chainId after account connection
-      console.log(
-        "WalletContext: Getting current chainId after account connection..."
-      );
+      console.log("WalletContext: Getting current chainId after account connection...");
       const chainIdPromise = window.ethereum.request({ method: "eth_chainId" });
       const chainIdTimeoutPromise = new Promise((_, reject) =>
         setTimeout(() => reject(new Error("ChainId request timed out")), 10000)
       );
 
-      const chainId = await Promise.race([
-        chainIdPromise,
-        chainIdTimeoutPromise,
-      ]);
+      const chainId = await Promise.race([chainIdPromise, chainIdTimeoutPromise]);
       const BASE_CHAIN_ID = "0x2105"; // BASE mainnet
       const BASE_TESTNET_CHAIN_ID = "0x14a33"; // BASE testnet
 
       console.log("WalletContext: Current chainId:", chainId);
 
       if (chainId !== BASE_CHAIN_ID && chainId !== BASE_TESTNET_CHAIN_ID) {
-        console.log(
-          "WalletContext: Not on BASE network, attempting to switch..."
-        );
+        console.log("WalletContext: Not on BASE network, attempting to switch...");
         try {
           // Try to switch to BASE mainnet
           console.log("WalletContext: Calling wallet_switchEthereumChain...");
@@ -223,10 +216,7 @@ export function WalletProvider({ children }) {
             params: [{ chainId: BASE_CHAIN_ID }],
           });
           const switchTimeoutPromise = new Promise((_, reject) =>
-            setTimeout(
-              () => reject(new Error("Network switch timed out")),
-              60000
-            )
+            setTimeout(() => reject(new Error("Network switch timed out")), 60000)
           );
 
           await Promise.race([switchPromise, switchTimeoutPromise]);
@@ -237,9 +227,7 @@ export function WalletProvider({ children }) {
           console.log("WalletContext: Switch error:", switchError);
           // This error code indicates that the chain has not been added to MetaMask
           if (switchError.code === 4902) {
-            console.log(
-              "WalletContext: BASE network not found, attempting to add..."
-            );
+            console.log("WalletContext: BASE network not found, attempting to add...");
             try {
               console.log("WalletContext: Calling wallet_addEthereumChain...");
               const addPromise = window.ethereum.request({
@@ -259,10 +247,7 @@ export function WalletProvider({ children }) {
                 ],
               });
               const addTimeoutPromise = new Promise((_, reject) =>
-                setTimeout(
-                  () => reject(new Error("Add network timed out")),
-                  60000
-                )
+                setTimeout(() => reject(new Error("Add network timed out")), 60000)
               );
 
               await Promise.race([addPromise, addTimeoutPromise]);
@@ -270,24 +255,14 @@ export function WalletProvider({ children }) {
               // Update chainId after successful add
               setChainId(BASE_CHAIN_ID);
             } catch (addError) {
-              console.error(
-                "WalletContext: Error adding BASE network:",
-                addError
-              );
-              setError(
-                "Failed to add BASE network to MetaMask: " + addError.message
-              );
+              console.error("WalletContext: Error adding BASE network:", addError);
+              setError("Failed to add BASE network to MetaMask: " + addError.message);
               setIsConnecting(false);
               return;
             }
           } else {
-            console.error(
-              "WalletContext: Error switching to BASE network:",
-              switchError
-            );
-            setError(
-              "Failed to switch to BASE network: " + switchError.message
-            );
+            console.error("WalletContext: Error switching to BASE network:", switchError);
+            setError("Failed to switch to BASE network: " + switchError.message);
             setIsConnecting(false);
             return;
           }
@@ -301,33 +276,13 @@ export function WalletProvider({ children }) {
       setSigner(web3Provider.getSigner());
       console.log("WalletContext: Set account and signer");
 
-      // Update contract with signer (get fresh contract instance)
-      const contractAddress = getContractAddress();
-      console.log("WalletContext: Contract address:", contractAddress);
-      if (contractAddress) {
-        try {
-          const contractInstance = new EtchContract(
-            contractAddress,
-            web3Provider
-          );
-          contractInstance.connect(web3Provider.getSigner());
-          setEtchContract(contractInstance);
-          console.log("WalletContext: Contract updated");
-        } catch (contractError) {
-          console.error(
-            "WalletContext: Error updating contract:",
-            contractError
-          );
-          // Don't fail the whole connection process for contract issues
-        }
-      }
+      // Contract initialization will be handled by the effect that reacts to provider/signer/contractAddress
+      // This avoids stale reads and enables live updates when the address changes without a full page reload.
       console.log("WalletContext: Connection process completed successfully");
     } catch (err) {
       console.error("WalletContext: Error connecting wallet:", err);
       if (err.message.includes("timed out")) {
-        setError(
-          "MetaMask request timed out. Please try again or check if MetaMask is responding."
-        );
+        setError("MetaMask request timed out. Please try again or check if MetaMask is responding.");
       } else if (err.message.includes("denied")) {
         setError("User denied wallet connection. Please try again.");
       } else {
@@ -341,6 +296,10 @@ export function WalletProvider({ children }) {
 
   // Auto-connect to wallet on page load
   useEffect(() => {
+    if (!ENABLE_AUTO_CONNECT) {
+      console.log("WalletContext: Auto-connect disabled by flag");
+      return;
+    }
     const autoConnect = async () => {
       // Only attempt auto-connect once
       if (hasAttemptedAutoConnect.current) {
@@ -363,20 +322,14 @@ export function WalletProvider({ children }) {
         try {
           console.log("WalletContext: Checking for existing accounts...");
           // Check if we have any accounts already connected
-          const accounts = await window.ethereum.request({
-            method: "eth_accounts",
-          });
+          const accounts = await window.ethereum.request({ method: "eth_accounts" });
           console.log("WalletContext: Existing accounts found:", accounts);
           if (accounts.length > 0) {
-            console.log(
-              "WalletContext: Auto-connecting to existing account..."
-            );
+            console.log("WalletContext: Auto-connecting to existing account...");
             // If we have accounts, trigger the connect wallet flow
             await connectWallet();
           } else {
-            console.log(
-              "WalletContext: No existing accounts, skipping auto-connect"
-            );
+            console.log("WalletContext: No existing accounts, skipping auto-connect");
           }
         } catch (err) {
           console.error("WalletContext: Error auto-connecting wallet:", err);
@@ -399,9 +352,7 @@ export function WalletProvider({ children }) {
         } else if (accounts[0] !== account) {
           setAccount(accounts[0]);
           if (provider) {
-            const web3Provider = new ethers.providers.Web3Provider(
-              window.ethereum
-            );
+            const web3Provider = new ethers.providers.Web3Provider(window.ethereum);
             const newSigner = web3Provider.getSigner();
             setSigner(newSigner);
 
@@ -415,9 +366,7 @@ export function WalletProvider({ children }) {
 
       const handleChainChanged = async () => {
         // Update chainId immediately
-        const newChainId = await window.ethereum.request({
-          method: "eth_chainId",
-        });
+        const newChainId = await window.ethereum.request({ method: "eth_chainId" });
         setChainId(newChainId);
 
         // Reload the page when chain changes
@@ -429,20 +378,30 @@ export function WalletProvider({ children }) {
 
       // Cleanup
       return () => {
-        window.ethereum.removeListener(
-          "accountsChanged",
-          handleAccountsChanged
-        );
+        window.ethereum.removeListener("accountsChanged", handleAccountsChanged);
         window.ethereum.removeListener("chainChanged", handleChainChanged);
       };
     }
   }, [account, provider, etchContract]);
 
-  const disconnectWallet = useCallback(() => {
-    setAccount(null);
-    setSigner(null);
-    // Note: There is no standard way to disconnect in MetaMask
-    // The user needs to disconnect via the MetaMask UI
+  const disconnectWallet = useCallback(async () => {
+    try {
+      // Attempt to revoke account permissions so the next connect prompts selection
+      if (window.ethereum?.request) {
+        try {
+          await window.ethereum.request({
+            method: "wallet_requestPermissions",
+            params: [{ eth_accounts: {} }],
+          });
+        } catch (permError) {
+          // Some wallets may not support changing permissions here; ignore
+          console.warn("WalletContext: Unable to reopen permissions during disconnect:", permError);
+        }
+      }
+    } finally {
+      setAccount(null);
+      setSigner(null);
+    }
   }, []);
 
   // Simple function to just connect accounts without network switching
@@ -460,9 +419,7 @@ export function WalletProvider({ children }) {
 
     try {
       console.log("WalletContext: Requesting accounts...");
-      const accounts = await window.ethereum.request({
-        method: "eth_requestAccounts",
-      });
+      const accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
 
       console.log("WalletContext: Got accounts:", accounts);
 
@@ -482,10 +439,7 @@ export function WalletProvider({ children }) {
         setChainId(hexChainId);
         setNetworkName(network.name);
       } catch (networkError) {
-        console.warn(
-          "Failed to get network info after account connection:",
-          networkError
-        );
+        console.warn("Failed to get network info after account connection:", networkError);
       }
 
       console.log("WalletContext: Account connection completed");
@@ -507,6 +461,7 @@ export function WalletProvider({ children }) {
     provider,
     signer,
     etchContract,
+    contractAddress,
     chainId,
     networkName,
     isConnecting,
@@ -514,11 +469,10 @@ export function WalletProvider({ children }) {
     connectWallet,
     connectAccountsOnly,
     disconnectWallet,
+    setContractAddress,
   };
 
-  return (
-    <WalletContext.Provider value={value}>{children}</WalletContext.Provider>
-  );
+  return <WalletContext.Provider value={value}>{children}</WalletContext.Provider>;
 }
 
 // Custom hook to use the wallet context
@@ -531,3 +485,5 @@ export function useWallet() {
 }
 
 export default WalletContext;
+
+

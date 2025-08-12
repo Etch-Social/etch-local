@@ -8,11 +8,57 @@ class ArweaveStorage {
       protocol: "https",
     });
 
-    // Parse JWK if it's a string
-    this.jwk = typeof jwkJson === "string" ? JSON.parse(jwkJson) : jwkJson;
+    // Parse and validate JWK
+    this.jwk = this.#normalizeAndValidateJwk(jwkJson);
+    if (!this.jwk) {
+      console.warn(
+        "ArweaveStorage: Invalid or incomplete JWK provided. Uploads will fail until a full JWK is saved."
+      );
+    }
+  }
+
+  #normalizeAndValidateJwk(input) {
+    try {
+      let jwk = input;
+      if (!jwk) return null;
+      if (typeof jwk === "string") {
+        // Handle possible double-encoded JSON
+        try {
+          jwk = JSON.parse(jwk);
+        } catch (_) {
+          return null;
+        }
+        if (typeof jwk === "string") {
+          try {
+            jwk = JSON.parse(jwk);
+          } catch (_) {
+            return null;
+          }
+        }
+      }
+      if (typeof jwk !== "object") return null;
+      // Some exports nest under { jwk: {...} }
+      if (jwk && jwk.jwk && typeof jwk.jwk === "object") {
+        jwk = jwk.jwk;
+      }
+      const requiredFields = ["kty", "e", "n", "d", "p", "q", "dp", "dq", "qi"];
+      const isValid = requiredFields.every(
+        (f) => typeof jwk[f] === "string" && jwk[f].length > 0
+      );
+      if (!isValid) return null;
+      if (jwk.kty !== "RSA") return null;
+      return jwk;
+    } catch (_) {
+      return null;
+    }
   }
 
   async uploadManifest(data, contentType, extension) {
+    if (!this.jwk) {
+      throw new Error(
+        "Invalid Arweave key. Please paste the full JWK JSON (with n, e, d, p, q, dp, dq, qi) in Setup > Step 3."
+      );
+    }
     const manifest = {
       manifest: "arweave/paths",
       version: "0.1.0",
